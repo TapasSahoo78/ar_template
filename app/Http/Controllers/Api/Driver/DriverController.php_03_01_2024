@@ -1,0 +1,189 @@
+<?php
+
+namespace App\Http\Controllers\Api\Driver;
+
+use App\Contracts\Admin\Booking\BookingContract;
+use App\Contracts\Admin\BusStop\BusStopContract;
+use App\Contracts\Admin\Driver\DriverContract;
+use App\Http\Controllers\BaseController;
+use App\Http\Resources\Api\Driver\DriverResource;
+use App\Http\Resources\Api\User\UserResources;
+use App\Models\Bus;
+use App\Models\BusStop;
+use App\Models\Driver;
+use App\Models\User;
+use Exception;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
+
+class DriverController extends BaseController
+{
+    private $BusStopContract;
+    private $BusStopModel;
+    private $BookingContract;
+    private $DriverContract;
+    // protected  $rules = [
+    //     'user_id' => 'required|exists:users,id',
+    //     'bus_id' => 'required|exists:buses,id',
+    //     'bus_stop_id' => 'somtimes|exists:bus_stops,id',
+    //     'route_id' => 'required|exists:routes,id',
+    //     'longitude' => 'required|numeric',
+    //     'latitude' => 'required|numeric',
+    // ];
+    public function __construct(DriverContract $DriverContract, BusStopContract $BusStopContract, BusStop $BusStopModel, BookingContract $BookingContract)
+    {
+        $this->BusStopContract = $BusStopContract;
+        $this->BusStopModel = $BusStopModel;
+        $this->BookingContract = $BookingContract;
+        $this->DriverContract = $DriverContract;
+    }
+    public function assigenBusRoute(Request $request)
+    {
+        $rules = [
+            'user_id' => 'required'
+        ];
+        $validator = Validator::make($request->all(), $rules);
+        if ($validator->fails()) {
+            return $this->responseJson(false, 200, $validator->errors()->first());
+        }
+        DB::beginTransaction();
+        try {
+            $profileDetails = User::select('name', 'last_name', 'authozation_no', 'reg_no', 'image')->where('id', $request->user_id)->first();
+            $driverDetails = Driver::select('bus_id')->where('user_id', $request->user_id)->first();
+
+            $busDetails = Bus::select('name', 'vehicle_no', 'route_id', 'from_time', 'to_time')->where('id', $driverDetails?->bus_id)->with('getRoute')->first();
+
+            $first = $busDetails?->getRoute?->getBusStop[0]->name;
+            $last = $busDetails?->getRoute?->getBusStop[count($busDetails->getRoute->getBusStop) - 1]->name;
+
+            $data = [
+                'baseUrl' => config('arc_config.ASSET_URL') . 'uploads/',
+                'profileDetails' => $profileDetails ?? (object)[],
+                'busDetails' => [
+                    'from_time' => $busDetails->from_time ?? '',
+                    'from_lacation' => $first ?? '',
+                    'to_time' => $busDetails->to_time ?? '',
+                    'to_lacation' => $last ?? '',
+                ],
+                'routeWithBusStopDetails' => $busDetails ?? (object)[]
+            ];
+
+            if (isset($data) && !empty($data)) {
+                DB::commit();
+                return response()->json(
+                    [
+                        'status'    => true,
+                        'message'   => 'Data available',
+                        'data'  =>  $data
+                    ],
+                    200
+                );
+            }
+        } catch (Exception $e) {
+            DB::rollback();
+            logger($e->getMessage() . ' -- ' . $e->getLine() . ' -- ' . $e->getFile());
+            return response()->json(
+                [
+                    'status'    => false,
+                    'message'   =>  'Data not found!',
+                    'redirect'  => ''
+                ],
+                200
+            );
+        }
+    }
+    public function addStore(Request $request)
+    {
+    }
+    public function editUpdate(Request $request)
+    {
+    }
+    public function delete(Request $request)
+    {
+    }
+
+    public function  coordinateUpdate(Request $request)
+    {
+        $rules = [
+            'user_id' => 'required',
+            'latitude' => 'required',
+            'longitude' => 'required',
+        ];
+        $validator = Validator::make($request->all(), $rules);
+        if ($validator->fails()) {
+            return $this->responseJson(false, 200, $validator->errors()->first());
+        }
+        DB::beginTransaction();
+        try {
+            $coordinateUpdate = $this->DriverContract->coordinateUpdate($request->all());
+            $user = User::where('id', $request->user_id)->first();
+
+            if ($coordinateUpdate) {
+                DB::commit();
+                return response()->json(
+                    [
+                        'status'    => true,
+                        'message'   => config('custom.MSG_RECORD_UPDATE_SUCCESS'),
+                        'data'  =>  [
+                            'latitude' => $user['latitude'],
+                            'longitude' => $user['longitude'],
+                        ]
+                    ],
+                    200
+                );
+            }
+        } catch (Exception $e) {
+            DB::rollback();
+            logger($e->getMessage() . ' -- ' . $e->getLine() . ' -- ' . $e->getFile());
+            return response()->json(
+                [
+                    'status'    => false,
+                    'message'   =>  config('custom.MSG_ERROR_TRY_AGAIN'),
+                    'data'  => ''
+                ],
+                200
+            );
+        }
+    }
+
+    public function bookingPassValidate(Request $request)
+    {
+        $index = $request->all();
+        $validator = Validator::make($index, [
+            'bus_id' => 'required'
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['status' => false, 'message' => $validator->errors()->first()], 422);
+        }
+        DB::beginTransaction();
+        try {
+            $todayBus = Bus::where('id', $request->bus_id)->first();
+
+            $insert_arry = $request->except(['_token', '_method', 'id']);
+            $passValidateBooking = $this->BookingContract->passValidateBooking($insert_arry);
+            if ($passValidateBooking) {
+                DB::commit();
+                return response()->json(
+                    [
+                        'status'    => true,
+                        'message'   => 'Pass Validate Successfully!',
+                        'data'  => $passValidateBooking
+                    ],
+                    200
+                );
+            }
+        } catch (Exception $e) {
+            DB::rollback();
+            logger($e->getMessage() . ' -- ' . $e->getLine() . ' -- ' . $e->getFile());
+            return response()->json(
+                [
+                    'status'    => false,
+                    'message'   =>  'Something went wrong!!',
+                    'redirect'  => ''
+                ],
+                200
+            );
+        }
+    }
+}

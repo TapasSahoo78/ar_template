@@ -1,0 +1,27 @@
+/* Add here all your CSS customizations */
+.dashboard-box-items {
+    border: #666666 solid 1px;
+    padding: 6px;
+    text-align: center;
+    margin-bottom: 30px;
+    width: 245px;
+    height: 130px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    margin: 10px auto 30px;
+    border-radius: 10px;
+}
+
+.dashboard-box-items label {
+    color: #000;
+    font-size: 17px;
+    font-weight: 600;
+}
+
+.dashboard-box-items p {
+    color: #000;
+    font-size: 20px;
+    font-weight: 600;
+}
